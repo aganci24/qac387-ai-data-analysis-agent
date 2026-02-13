@@ -64,6 +64,7 @@ from typing import Optional, Tuple, List, Dict, Any
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import statsmodels.api as sm 
 
 # -----------------------------
 # Utilities
@@ -199,7 +200,18 @@ def missingness_table(df: pd.DataFrame) -> pd.DataFrame:
     - df.isna().mean() gives missing rates
     - df.isna().sum() gives missing counts
     """
-    raise NotImplementedError("Student must implement missingness_table(df).")
+
+    missing_rate = df.isna().mean() #Missing rate for each col
+    missing_count = df.isna().sum() #Missing count
+    
+    result = pd.DataFrame({ #Creating a new dataset with 3 vars: column, missing_rate, missing_count
+        "column": df.columns,
+        "missing_rate": missing_rate.values,
+        "missing_count": missing_count.values
+    })
+    
+    return result.sort_values(by="missing_rate", ascending=False) #Return it and sort by missing_rate
+
 
 
 def multiple_linear_regression(
@@ -230,9 +242,29 @@ def multiple_linear_regression(
     - Convert any numpy/pandas scalars to Python floats/ints before returning.
     """
 
-    raise NotImplementedError(
-        "Student must implement multiple_linear_regression(df, outcome, predictors=None)."
-    )
+    if not pd.api.types.is_numeric_dtype(df[outcome]): #Raise error if ther is not a numeric output
+        raise ValueError(f"Outcome column '{outcome}' must be numeric.")
+
+    if predictors is None: #If predictors is none use all numeric columns except outcome by default in the regression
+        predictors = df.select_dtypes(include=['number']).columns.drop(outcome).tolist()
+
+    data = df[[outcome] + predictors].dropna() #Temporary clean data. Made with help since I was getting strange errors.
+    y = data[outcome] #Steps from the hint
+    X = sm.add_constant(data[predictors])
+    model = sm.OLS(y, X).fit() #Run it
+
+    results = { #Extract results and convert to Python types
+        "outcome": outcome,
+        "predictors": predictors,
+        "n_rows_used": int(len(data)),
+        "r_squared": float(model.rsquared),
+        "adj_r_squared": float(model.rsquared_adj),
+        "intercept": float(model.params['const']),
+        "coefficients": model.params.drop('const').to_dict()
+    }
+
+    return results
+
 
 
 def correlations(df: pd.DataFrame, numeric_cols: List[str]) -> pd.DataFrame:
