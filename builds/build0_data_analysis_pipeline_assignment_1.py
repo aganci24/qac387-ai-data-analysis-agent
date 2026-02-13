@@ -200,7 +200,7 @@ def missingness_table(df: pd.DataFrame) -> pd.DataFrame:
     - df.isna().mean() gives missing rates
     - df.isna().sum() gives missing counts
     """
-
+    #Recieved help at TA session
     missing_rate = df.isna().mean() #Missing rate for each col
     missing_count = df.isna().sum() #Missing count
     
@@ -241,7 +241,7 @@ def multiple_linear_regression(
     IMPORTANT:
     - Convert any numpy/pandas scalars to Python floats/ints before returning.
     """
-
+    #Recieved help at TA session
     if not pd.api.types.is_numeric_dtype(df[outcome]): #Raise error if ther is not a numeric output
         raise ValueError(f"Outcome column '{outcome}' must be numeric.")
 
