@@ -15,7 +15,7 @@ run the requirements.txt file to install the necessary libraries into your local
 project virtual environment.
 
 2) Make sure you have split your Build0 code into reusable functions into a folder in the project root directory
-(e.g., src/) and that you have run the test_modles.py file to confirm they work.
+(e.g., src/) and that you have run the test_modles.py file to confirm they work. h
 
 3) Complete the assignment by filling in the blanks (marked with TODO) in the
 build1_llm_assistant_assignment_2.py file. The main areas you need to complete are:
@@ -105,14 +105,10 @@ from src import ensure_dirs, read_data, basic_profile
 #
 # Tip: Keep it short and explicit. You can iterate after testing.
 SYSTEM_PROMPT = """
-TODO: Replace this with your own system prompt.
-
-Required elements:
-- Role
-- Only sees schema
-- No hallucinated columns
-- Output format instructions
+You are an expert data analysis assistant for college students. Your role is to help students with their questions based strictly on the provided dataset schema (columns and dtypes). 
+You only see the schema and must never reference, use, or invent any variables or columns not explicitly listed therein. You must follow this exact output format without deviation: you must be concise, any research questions you are asked to create must require only the provided schema to answer. 
 """
+#OMMITTED FROM SYSTEM PROMPT BECAUSE IT WAS MAKING THINGS WIERD: If asked for summary statisics of a quatitative variable, list the mean, min, median, max, and standard deviation. For categorical varaibles, respond with a frequency table. Do not use any data or insights outside of the schema given. 
 
 
 # -------------------------------------------------------------------------------------------------
@@ -136,7 +132,7 @@ def profile_to_schema_text(profile: dict) -> str:
         "",
         "Columns and dtypes:",
     ]
-    for col in profile["_____"]:
+    for col in profile["columns"]: #filled in blank here
         lines.append(f"- {col}: {profile['dtypes'].get(col)}")
 
     return "\n".join(lines)
@@ -159,14 +155,14 @@ def build_chain(
     if memory:
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", _________),
+                ("system", SYSTEM_PROMPT), #filled in blank here
                 ("human", "Dataset schema:\n{schema_text}"),
                 MessagesPlaceholder(variable_name="history"),
                 ("human", "User question:\n{user_query}"),
             ]
         )
 
-        base_chain = prompt | ______ | StrOutputParser()
+        base_chain = prompt | llm | StrOutputParser() #filled in blank here with llm
 
         history = InMemoryChatMessageHistory()
         chain_with_history = RunnableWithMessageHistory(
@@ -244,28 +240,28 @@ def main():
     )
 
     parser.add_argument(
-        "_____",
-        type=_____,
-        required=_____,
+        "--data",  #filled in blank here
+        type=str, #filled in blank here
+        required=True, #filled in blank here
         help="Path to CSV file",
     )
-    parser.add_argument("--report_dir", type=str, default="_____")
-    parser.add_argument("--model", type=str, default="_____")
-    parser.add_argument("--temperature", type=float, default=_____)
+    parser.add_argument("--report_dir", type=str, default="reports") #filled in blank here
+    parser.add_argument("--model", type=str, default="gpt-4o-mini") #filled in blank here
+    parser.add_argument("--temperature", type=float, default=0.2) #filled in blank here
 
     parser.add_argument(
         "--quiet_schema",
-        action="_____",
+        action="store_true", #filled in blank here
         help="Do not print schema automatically at startup",
     )
     parser.add_argument(
         "--memory",
-        action="_____",
+        action="store_true", #filled in blank here
         help="Enable conversation memory for this session",
     )
     parser.add_argument(
         "--stream",
-        action="_____",
+        action="store_true", #filled in blank here
         help="Stream model output to terminal as it is generated",
     )
 
@@ -291,7 +287,7 @@ def main():
         model=args.model,
         temperature=args.temperature,
         stream=args.stream,
-        memory=args.________,
+        memory=args.memory, #filled in blank here
     )
 
     while True:
