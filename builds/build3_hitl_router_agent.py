@@ -52,6 +52,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
+from textwrap import dedent
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -60,6 +61,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import SystemMessage
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
 # always set the location of the .env file to the project root for consistent env var loading
@@ -153,7 +155,7 @@ def inject_artifact_paths(
 
     # Common single-file “output path” parameters (optional but helpful)
     # Only set if the tool takes it AND it wasn't provided.
-    file_param_candidates = ["out_path", "output_path", "save_path", "path"]
+    file_param_candidates = ["out_path", "output_path", "save_path"]
     for p in file_param_candidates:
         if p in params and p not in args:
             # Choose an extension that won’t break most tools; many plotting funcs accept .png
@@ -621,25 +623,46 @@ def build_toolplan_chain(
 ):
     """Pick one tool + args ONLY (JSON)."""
     llm = ChatOpenAI(model=model, temperature=temperature, streaming=stream)
-    allow_str = format_capability_hints(allowed_tools, tool_descriptions)
+    # allow_str = format_capability_hints(allowed_tools, tool_descriptions)
 
-    system_text = (
-        "You are a routing assistant.\n"
-        "You MUST choose exactly one tool from the allow-list and output ONLY valid JSON.\n\n"
-        f"Allow-list tools:\n{allow_str}\n\n"
-        f"Tool argument names by signature:\n{tool_arg_hints}\n\n"
-        "JSON output schema:\n"
-        "{{\n"
-        '  "tool": "<one of the allow-list tool names>",\n'
-        '  "args": {{ ... }},\n'
-        '  "note": "one sentence explaining why this tool fits"\n'
-        "}}\n\n"
-        "Rules:\n"
-        "- Use ONLY columns in the schema.\n"
-        "- args keys MUST use valid parameter names for the selected tool signature above.\n"
-        "- Do NOT use generic keys like 'column' unless that exact parameter exists.\n"
-        "- If there is no tool to complete the request, fall back to codegen mode.\n"
-    )
+    system_text = dedent("""
+    You are a routing assistant. You pick the single BEST tool to satisfy 
+    a user request from an allow-list of tools.
+    
+    You see:
+    - Dataset schema (columns + dtypes)
+    - Allow-list tools + tool signatures
+    - User request
+
+    Allow-list tools:
+    {allow_str}
+
+    Tool argument names by signature:
+    {tool_arg_hints}
+
+    Return ONLY valid JSON in exactly ONE of these forms.
+    
+    If you choose a tool:
+    ```json
+        {{
+        "tool": "<one of the allow-list tool names>",\n'
+        "args": {{ ... }},\n'
+        "note": "one sentence explaining why this tool fits"\n'
+        }}
+    ```
+    Rules:
+        - Use ONLY columns in the schema.
+        - args keys MUST use valid parameter names for the selected tool signature above.
+        - Do NOT use generic keys like 'column' unless that exact parameter exists.
+        - If there is no tool to complete the request, fall back to codegen mode.
+        - IMPORTANT: If the selected tool requires an input column, args MUST include it.
+        - Never output an empty args object for summarize_categorical.
+        - For summarize_categorical:
+        - If the user requests one column, use args {{"column": "<col>"}}
+        - If the user requests multiple columns, use args {{"cat_cols": ["<col1>", "<col2>"]}}
+        - Filesystem paths, report directories, and session folders are handled by the runtime.
+        
+        """)
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -661,54 +684,107 @@ def build_router_chain(
     temperature: float = 0.0,
     stream: bool = False,
 ):
-    """
-    Decide whether to use a Build0 tool or fall back to CodeGen.
-
-    Outputs ONLY valid JSON:
-    {
-      "mode": "tool" | "codegen",
-      "tool": "<toolname>",         # required if mode=="tool"
-      "args": { ... },              # required if mode=="tool"
-      "code_request": "<string>",   # required if mode=="codegen"
-      "note": "short rationale"
-    }
-    """
     llm = ChatOpenAI(model=model, temperature=temperature, streaming=stream)
-    allow_str = format_capability_hints(allowed_tools, tool_descriptions)
+    # allow_str = format_capability_hints(allowed_tools, tool_descriptions)
 
-    system_text = (
-        "You are a careful router for a human-in-the-loop data analysis CLI.\n"
-        "You ONLY see dataset schema (columns + dtypes) and an allow-list of tools.\n\n"
-        "Goal: Choose TOOL mode whenever a tool can satisfy the request.\n"
-        "Choose CODEGEN mode only when no available tool can satisfy the request.\n\n"
-        f"Allow-list tools:\n{allow_str}\n\n"
-        f"Tool argument names by signature:\n{tool_arg_hints}\n\n"
-        "OUTPUT JSON ONLY (no markdown, no commentary):\n"
-        "{{\n"
-        '  "mode": "tool" | "codegen",\n'
-        '  "tool": "<toolname>",\n'
-        '  "args": {{ ... }},\n'
-        '  "code_request": "<string>",\n'
-        '  "note": "short rationale"\n'
-        "}}\n\n"
-        "Rules:\n"
-        "- If mode=='tool': tool must be in allow-list; args should be minimal and safe.\n"
-        "- If mode=='tool': args keys MUST match the selected tool's parameter names.\n"
-        "- Never use generic keys like 'column' unless that exact parameter exists.\n"
-        "- If mode=='codegen': set code_request to a concrete coding request.\n"
-        "- If request asks for an analysis and no such tool exists in the allow-list, choose codegen.\n"
-        "- Never invent columns.\n"
-    )
+    system_text = dedent("""
+    You are a TOOL ROUTER for a data analysis CLI.
+
+    You see:
+    - Dataset schema (columns + dtypes)
+    - Allow-list tools + tool signatures
+    - User request
+
+    Allow-list tools:
+    {allow_str}
+
+    Tool argument names by signature:
+    {tool_arg_hints}
+
+    Routing checklist (do this before producing JSON):
+    1) Does a tool in the allow-list clearly satisfy the request?
+       - If YES → mode="tool"
+       - If NO  → mode="codegen"
+    2) If mode="tool":
+       - pick the exact tool name from the allow-list
+       - extract referenced column names and verify they exist in the schema
+    3) Construct args:
+       - use parameter names from the tool signature hints
+       - include required parameters
+       - do NOT output an empty args object unless the tool truly takes no args
+    
+    The router should only include analysis parameters in args.
+    Filesystem paths, report directories, and session folders are handled by the runtime.
+    
+    Return ONLY valid JSON in exactly ONE of these forms.
+
+    If you choose a tool:
+    ```json
+    {{"mode":"tool","tool":"plot_histograms","args":{
+        "numeric_cols":["bill_length_mm","flipper_length_mm"]},"note":"<brief>"}}
+    ```
+
+    If no tool can satisfy the request:
+    ```json
+    {{"mode":"codegen","code_request":"<concrete coding request>","note":"<brief>"}}
+    ```
+
+    Tool selection guidance (use tool mode when possible):
+    - Dataset overview -> basic_profile
+    - Missing data -> missingness_table or plot_missingness
+    - Categorical summaries / frequency tables -> summarize_categorical
+    - Numeric summaries -> summarize_numeric
+    - Correlations -> pearson_correlation or plot_corr_heatmap
+    - Histograms -> plot_histograms
+    - Bar charts (categorical counts) -> plot_bar_charts
+    - Categorical vs numeric boxplot -> plot_cat_num_boxplot
+    - Linear regression -> multiple_linear_regression
+    - Validate outcome/target column -> target_check
+
+    Tool-specific argument rules:
+    - summarize_categorical requires either:
+      - one column: args={{"column":"<col>"}}
+      - many columns: args={{"cat_cols":["<col1>","<col2>"]}}
+
+    Examples:
+    User: "frequency table for sex"
+    ```json
+    {{"mode":"tool","tool":"summarize_categorical","args":{{"column":"sex"}},"note":"Frequency table is a categorical summary."}}
+    ```
+
+    User: "frequency tables for sex and island"
+    ```json
+    {{"mode":"tool","tool":"summarize_categorical","args":{{"cat_cols":["sex","island"]}},"note":"Summarize multiple categorical columns."}}
+    ```
+
+    User: "show missingness"
+    ```json
+    {{"mode":"tool","tool":"missingness_table","args":{{}},"note":"Missingness summary is available as a tool."}}
+    ```
+    
+    User: "histograms for bill_length_mm and flipper_length_mm"
+    ```json
+    {
+        "mode":"tool",
+    "tool":"plot_histograms",
+    "args":{
+            "numeric_cols":["bill_length_mm","flipper_length_mm"]
+    },
+    "note":"Histogram tool visualizes numeric distributions."
+    }
+```
+""")
 
     prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", system_text),
+            SystemMessage(content=system_text),  # <-- NOT templated
             (
                 "human",
                 "Dataset schema:\n{schema_text}\n\nUser request:\n{user_request}\n",
             ),
         ]
     )
+
     return prompt | llm | StrOutputParser()
 
 
