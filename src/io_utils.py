@@ -26,6 +26,8 @@ def read_data(path: Path) -> pd.DataFrame:
 
 """
 from pathlib import Path
+from typing import Optional
+
 import pandas as pd
 
 

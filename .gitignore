@@ -44,7 +44,8 @@ Thumbs.db
 reports/
 figures/
 outputs/
-
+tool_outputs/
+tool_figures/
 # --------------------------------------------------
 # Logs
 # --------------------------------------------------
@@ -56,3 +57,10 @@ outputs/
 *.egg-info/
 dist/
 build/
+
+# --------------------------------------------------
+# Langfuse
+# --------------------------------------------------
+infra/
+langfuse_logs/
+docker-compose.yml

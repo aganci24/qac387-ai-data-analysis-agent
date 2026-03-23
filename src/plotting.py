@@ -7,6 +7,9 @@ from typing import List
 
 def plot_missingness(miss_df: pd.DataFrame, out_path: Path, top_n: int = 30) -> None:
     """Plot missing data in a horizontal bar chart."""
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
     plot_df = miss_df.head(top_n).iloc[::-1]
     plt.figure()
     # BLANK 9: create a horizontal bar chart using column names and missing_rate
@@ -18,15 +21,44 @@ def plot_missingness(miss_df: pd.DataFrame, out_path: Path, top_n: int = 30) -> 
     plt.close()
 
 
-def plot_corr_heatmap(corr: pd.DataFrame, out_path: Path) -> None:
-    """Create a heatmap of correlations."""
+def plot_corr_heatmap(
+    corr: pd.DataFrame,
+    out_path: Path,
+    missing: str = "drop",
+) -> None:
+    """Create a heatmap of correlations for numeric columns."""
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
     if corr.empty:
         return
+
+    if corr.shape[0] > 20:
+        print("Too many variables to annotate heatmap clearly.")
+
+        plt.figure()
+        im = plt.imshow(corr.values, aspect="auto", cmap="coolwarm", vmin=-1, vmax=1)
+        plt.colorbar(im)
+        plt.xticks(range(len(corr.columns)), corr.columns, rotation=90, fontsize=7)
+        plt.yticks(range(len(corr.index)), corr.index, fontsize=7)
+        plt.title("Correlation heatmap (numeric columns)")
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=200)
+        plt.close()
+        return
+
     plt.figure()
-    plt.imshow(corr.values, aspect="auto")
-    plt.colorbar()
+    im = plt.imshow(corr.values, aspect="auto", cmap="coolwarm", vmin=-1, vmax=1)
+    plt.colorbar(im)
+
     plt.xticks(range(len(corr.columns)), corr.columns, rotation=90, fontsize=7)
     plt.yticks(range(len(corr.index)), corr.index, fontsize=7)
+
+    for i in range(len(corr.index)):
+        for j in range(len(corr.columns)):
+            value = corr.iloc[i, j]
+            plt.text(j, i, f"{value:.2f}", ha="center", va="center", fontsize=6)
+
     plt.title("Correlation heatmap (numeric columns)")
     plt.tight_layout()
     plt.savefig(out_path, dpi=200)
@@ -47,14 +79,27 @@ def plot_histograms(
         plt.xlabel(c)
         plt.ylabel("Count")
         plt.tight_layout()
-        plt.savefig(fig_dir / f"hist_{c}.png", dpi=200)
+        out_path = fig_dir / f"hist_{c}.png"
+        plt.savefig(out_path, dpi=200)
         plt.close()
+        written.append(str(out_path))
+
+    return {
+        "text": f"Saved {len(written)} histogram(s) to {fig_dir}",
+        "artifact_paths": written,
+    }
 
 
 def plot_bar_charts(
     df: pd.DataFrame,
-    cat_cols: List[str],
-    fig_dir: Path,
+    # Router/LLM-friendly args
+    x: Optional[str] = None,  # categorical column (preferred)
+    y: Optional[str] = None,  # ignored for bar charts (kept to avoid tool-call crashes)
+    # Back-compat args
+    cat_cols: Optional[List[str]] = None,
+    column: Optional[str] = None,
+    # Output control
+    fig_dir: Optional[Union[str, Path]] = None,
     max_cols: int = 12,
     top_k: int = 20,
 ) -> None:
@@ -69,7 +114,8 @@ def plot_bar_charts(
         plt.title(f"Top {min(top_k, len(vc))} values: {c}")
         plt.xticks(rotation=90, fontsize=7)
         plt.tight_layout()
-        plt.savefig(fig_dir / f"bar_{c}.png", dpi=200)
+        out_path = fig_dir / f"bar_{c}.png"
+        plt.savefig(out_path, dpi=200)
         plt.close()
 
 

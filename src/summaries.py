@@ -2,8 +2,25 @@ from __future__ import annotations
 import pandas as pd
 from typing import List
 
-def summarize_numeric(df: pd.DataFrame, numeric_cols: List[str]) -> pd.DataFrame:
-    """Compute descriptive statistics for numeric columns."""
+def summarize_numeric(
+    df: pd.DataFrame,
+    numeric_cols: Optional[List[str]] = None,
+    column: Optional[str] = None,
+) -> pd.DataFrame:
+    """Compute descriptive statistics for numeric columns.
+
+    Accepts either:
+      - numeric_cols=[...]
+      - column="..." (single column)
+    """
+    if numeric_cols is not None and column is not None:
+        raise ValueError("Provide only one of: 'numeric_cols' or 'column'.")
+
+    if numeric_cols is None:
+        if column is None:
+            raise ValueError("Provide either 'numeric_cols' or 'column'.")
+        numeric_cols = [column]
+
     if not numeric_cols:
         return pd.DataFrame(
             columns=[
@@ -24,7 +41,7 @@ def summarize_numeric(df: pd.DataFrame, numeric_cols: List[str]) -> pd.DataFrame
     summary = df[numeric_cols].describe(percentiles=[0.25, 0.5, 0.75]).T #Blank 6
 
     summary = summary.rename(columns={"50%": "median", "25%": "p25", "75%": "p75"})
-    summary.insert(0, "column", summary.index)
+    summary.insert(0, "column", summary.index.astype(str))
     summary.reset_index(drop=True, inplace=True)
     return summary
 
@@ -35,6 +52,8 @@ def summarize_categorical(
     """Compute descriptive statistics for categorical columns."""
     rows = []
     for c in cat_cols:
+        if c not in df.columns:
+            raise ValueError(f"Column not found: '{c}'")
         series = df[c].astype("string")
         n = int(series.shape[0])
         n_missing = int(series.isna().sum())
@@ -52,6 +71,7 @@ def summarize_categorical(
                 "top_values": "; ".join([f"{idx} ({val})" for idx, val in top.items()]),
             }
         )
+
     return pd.DataFrame(rows)
 
 
